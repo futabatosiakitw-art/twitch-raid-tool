@@ -5,8 +5,8 @@
   <title>Twitch Token Generator</title>
   <style>
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background-color: #0e0e10;
+      font-family: sans-serif;
+      background: #0e0e10;
       color: #efeff1;
       display: flex;
       justify-content: center;
@@ -15,27 +15,17 @@
       margin: 0;
     }
     .card {
-      background-color: #18181b;
+      background: #18181b;
       padding: 30px;
       border-radius: 12px;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
-      width: 380px;
+      width: 360px;
       text-align: center;
       border: 1px solid #303036;
-    }
-    h2 {
-      margin-top: 0;
-      color: #a970ff;
-    }
-    p {
-      font-size: 13px;
-      color: #adadb8;
-      line-height: 1.5;
     }
     .btn {
       width: 100%;
       padding: 12px;
-      background-color: #9146ff;
+      background: #9146ff;
       border: none;
       border-radius: 6px;
       color: white;
@@ -43,49 +33,38 @@
       cursor: pointer;
       font-size: 14px;
       margin-top: 10px;
-      transition: background-color 0.2s;
     }
-    .btn:hover {
-      background-color: #772ce8;
-    }
+    .btn:hover { background: #772ce8; }
     .token-box {
-      margin-top: 20px;
-      padding: 12px;
+      margin-top: 16px;
+      padding: 10px;
       background: #000;
       border-radius: 6px;
       border: 1px solid #303036;
       word-break: break-all;
       color: #00f592;
       font-family: monospace;
-      font-size: 14px;
+      font-size: 13px;
       text-align: left;
     }
-    .copy-btn {
-      background-color: #00f592;
-      color: #000;
-    }
-    .copy-btn:hover {
-      background-color: #00d37e;
-    }
+    .copy-btn { background: #00f592; color: #000; }
+    .copy-btn:hover { background: #00d37e; }
   </style>
 </head>
 <body>
 
 <div class="card">
-  <h2>Twitch Token Generator</h2>
+  <h2 style="color: #a970ff; margin-top:0;">Twitch 認証ページ</h2>
 
-  <!-- 未認証時の表示 -->
-  <div id="unauthSection">
-    <p>下のボタンを押してTwitchアカウントを認証すると、アクセストークンが発行されます。</p>
+  <div id="unauth">
+    <p style="font-size: 13px; color: #adadb8;">ボタンを押して認証を許可すると、レイドツール用のトークンが発行されます。</p>
     <button class="btn" onclick="authorize()">🟣 Twitchで認証する</button>
   </div>
 
-  <!-- 認証成功時の表示 -->
-  <div id="authSection" style="display: none;">
-    <p style="color: #00f592; font-weight: bold;">✅ 認証に成功しました！</p>
+  <div id="auth" style="display: none;">
+    <p style="color: #00f592; font-weight: bold; margin:0;">✅ 認証成功</p>
     <div class="token-box" id="tokenDisplay"></div>
     <button class="btn copy-btn" onclick="copyToken()">📋 1ポチでトークンをコピー</button>
-    <button class="btn" onclick="authorize()" style="background: #26262c; color: #adadb8; margin-top: 8px;">再認証する</button>
   </div>
 </div>
 
@@ -96,29 +75,24 @@
   window.onload = () => {
     const hash = window.location.hash.substring(1);
     const params = new URLSearchParams(hash);
-    const accessToken = params.get('access_token');
+    const token = params.get('access_token');
 
-    if (accessToken) {
-      document.getElementById('unauthSection').style.display = 'none';
-      document.getElementById('authSection').style.display = 'block';
-      document.getElementById('tokenDisplay').innerText = accessToken;
+    if (token) {
+      document.getElementById('unauth').style.display = 'none';
+      document.getElementById('auth').style.display = 'block';
+      document.getElementById('tokenDisplay').innerText = token;
     }
   };
 
   function authorize() {
-    const authUrl = `https://id.twitch.tv/oauth2/authorize` +
-      `?client_id=${CLIENT_ID}` +
-      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
-      `&response_type=token` +
-      `&scope=`;
-
-    window.location.href = authUrl;
+    const url = `https://id.twitch.tv/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=`;
+    window.location.href = url;
   }
 
   function copyToken() {
     const token = document.getElementById('tokenDisplay').innerText;
     navigator.clipboard.writeText(token).then(() => {
-      alert('アクセストークンをクリップボードにコピーしました！');
+      alert('トークンをコピーしました！ローカルのドック設定画面に貼り付けてください。');
     });
   }
 </script>
