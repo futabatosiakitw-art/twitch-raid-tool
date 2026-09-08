@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8">
   <title>Raid Control Tool</title>
-  <!-- Twitch Embed SDK の読み込み -->
+  <!-- Twitch Embed SDK & PeerJS(WebRTC通信) の読み込み -->
   <script src="https://embed.twitch.tv/embed/v1.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
     body {
       margin: 0;
@@ -80,7 +81,6 @@
       background: #26262c; border: 1px solid #464649; color: white; border-radius: 4px; margin-bottom: 6px;
     }
 
-    /* 手元プレビュープレイヤー用スタイル */
     .dock-preview-box {
       width: 100%;
       aspect-ratio: 16 / 9;
@@ -126,7 +126,6 @@
 
   <!-- クリップタブ -->
   <div id="tab-clip" class="tab-content active">
-    <!-- 手元プレビュー画面 -->
     <div class="dock-preview-box" id="dockClipPreview"></div>
 
     <div class="control-group">
@@ -152,7 +151,6 @@
 
   <!-- VODタブ -->
   <div id="tab-vod" class="tab-content">
-    <!-- 手元VODプレビュー画面 -->
     <div class="dock-preview-box" id="dockVodPreview"></div>
 
     <button class="action-btn" onclick="loadTodayVod()">今日の最新VODを再生</button>
@@ -169,8 +167,16 @@
 
     <div class="control-group">
       <h4 style="margin: 0 0 4px 0;">ブラウザソース用 URL</h4>
+      <p style="font-size: 11px; color:#adadb8; margin:0 0 6px 0;">OBSの「ブラウザソース」に貼り付ける専用URLです（暗号ID付き）。</p>
       <input type="text" id="sourceUrlDisplay" readonly onclick="this.select()">
       <button class="action-btn sub-btn" onclick="copySourceUrl()">📋 ソース用URLをコピー</button>
+    </div>
+
+    <div class="control-group">
+      <h4 style="margin: 0 0 4px 0;">セキュリティ設定</h4>
+      <p style="font-size: 11px; color:#adadb8; margin:0 0 4px 0;">通信用ID（外部漏洩防止のためランダム生成されています）</p>
+      <input type="text" id="roomIdInput" readonly style="color: #888;">
+      <button class="action-btn stop-btn" onclick="regenerateRoomId()" style="margin-top: 4px;">⚠️ 通信IDを再生成する（URLも変わります）</button>
     </div>
 
     <div class="control-group">
@@ -185,8 +191,25 @@
 <script>
   const CLIENT_ID = 'wh00jngjvj1j24n192xjjozyqcgvv4';
   const REDIRECT_URI = 'https://futabatosiakitw-art.github.io/twitch-raid-tool/';
-  const isDisplayMode = window.location.search.includes('display');
+  const urlParams = new URLSearchParams(window.location.search);
+  const isDisplayMode = urlParams.has('display');
+  const roomIdParam = urlParams.get('room');
+
   const channel = new BroadcastChannel('raid_control_channel');
+
+  // 暗号論的に安全なランダムID生成関数
+  function generateSecureRoomId() {
+    const array = new Uint8Array(12);
+    window.crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  // ルームID（初回時に自動で安全なランダムIDを生成し、保存）
+  let roomId = roomIdParam || localStorage.getItem('raid_tool_room_id');
+  if (!roomId) {
+    roomId = generateSecureRoomId();
+    localStorage.setItem('raid_tool_room_id', roomId);
+  }
 
   if (isDisplayMode) {
     document.body.classList.add('mode-display');
@@ -197,16 +220,21 @@
   }
 
   // ==========================================
-  // 1. 本番画面処理 (?display あり)
+  // 1. 本番画面処理 (?display&room=XXXX)
   // ==========================================
   function initDisplayMode() {
     const container = document.getElementById('player-container');
     let twitchEmbed = null;
     let currentVolume = 0.5;
 
-    channel.onmessage = (event) => {
-      const data = event.data;
+    const peer = new Peer('raid-room-' + roomId);
+    peer.on('connection', (conn) => {
+      conn.on('data', (data) => handleCommand(data));
+    });
 
+    channel.onmessage = (event) => handleCommand(event.data);
+
+    function handleCommand(data) {
       if (data.type === 'TRANSFORM') {
         container.style.left = `${data.x}px`;
         container.style.top = `${data.y}px`;
@@ -231,7 +259,6 @@
 
         if (data.mediaType === 'clip') {
           twitchEmbed = null;
-          // 本番画面用：音ありで再生
           const clipUrl = `https://clips.twitch.tv/embed?clip=${data.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=false`;
           container.innerHTML = `<iframe src="${clipUrl}" allow="autoplay; encrypted-media"></iframe>`;
         } 
@@ -261,7 +288,7 @@
         container.innerHTML = '';
         twitchEmbed = null;
       }
-    };
+    }
   }
 
   // ==========================================
@@ -274,8 +301,14 @@
   let currentClipIdx = 0;
   let currentFeaturedIdx = 0;
   let currentBroadcasterId = '';
+  
+  let peer = null;
+  let conn = null;
 
   function initDockMode() {
+    peer = new Peer();
+    peer.on('open', () => connectToDisplay());
+
     window.onload = () => {
       const hash = window.location.hash.substring(1);
       const params = new URLSearchParams(hash);
@@ -296,11 +329,49 @@
         document.getElementById('connectBtn').innerText = '🔄 アカウントを再連携する';
       }
 
-      document.getElementById('sourceUrlDisplay').value = REDIRECT_URI + '?display';
+      document.getElementById('roomIdInput').value = roomId;
+      updateSourceUrlDisplay();
 
       updateTransform();
       updateVolume();
     };
+  }
+
+  function updateSourceUrlDisplay() {
+    document.getElementById('sourceUrlDisplay').value = `${REDIRECT_URI}?display&room=${roomId}`;
+  }
+
+  function regenerateRoomId() {
+    if (confirm('通信IDを再生成すると、現在OBSに設定しているブラウザソースのURLが無効になります。\n再生成しますか？')) {
+      roomId = generateSecureRoomId();
+      localStorage.setItem('raid_tool_room_id', roomId);
+      document.getElementById('roomIdInput').value = roomId;
+      updateSourceUrlDisplay();
+      connectToDisplay();
+      alert('新しい通信IDを生成しました！\n設定タブで新しい「ソース用URL」をコピーしてOBSのブラウザソースに貼り付け直してください。');
+    }
+  }
+
+  function connectToDisplay() {
+    if (!peer || peer.destroyed) return;
+    conn = peer.connect('raid-room-' + roomId);
+    conn.on('open', () => {
+      updateTransform();
+      updateVolume();
+    });
+  }
+
+  function sendCommand(data) {
+    channel.postMessage(data);
+
+    if (conn && conn.open) {
+      conn.send(data);
+    } else {
+      connectToDisplay();
+      setTimeout(() => {
+        if (conn && conn.open) conn.send(data);
+      }, 500);
+    }
   }
 
   function loginTwitch() {
@@ -311,7 +382,7 @@
   function copySourceUrl() {
     const urlInput = document.getElementById('sourceUrlDisplay');
     navigator.clipboard.writeText(urlInput.value).then(() => {
-      alert('ブラウザソース用URLをコピーしました！');
+      alert('ブラウザソース用URLをコピーしました！\nOBSの「ブラウザソース」のURL欄に貼り付けてください。');
     });
   }
 
@@ -331,13 +402,13 @@
     document.getElementById('valY').innerText = `${y}px`;
     document.getElementById('valW').innerText = `${w}px`;
 
-    channel.postMessage({ type: 'TRANSFORM', x: parseInt(x), y: parseInt(y), width: parseInt(w) });
+    sendCommand({ type: 'TRANSFORM', x: parseInt(x), y: parseInt(y), width: parseInt(w) });
   }
 
   function updateVolume() {
     const vol = document.getElementById('volRange').value;
     document.getElementById('valVol').innerText = `${vol}%`;
-    channel.postMessage({ type: 'SET_VOLUME', volume: parseFloat(vol) / 100 });
+    sendCommand({ type: 'SET_VOLUME', volume: parseFloat(vol) / 100 });
   }
 
   function shuffle(array) {
@@ -407,15 +478,12 @@
     });
   }
 
-  // 手元プレビュー再生 ＋ 本番へ送信
   function playClipById(clipId) {
-    // 1. ドック手元（ミュートでプレビュー表示）
     const clipUrl = `https://clips.twitch.tv/embed?clip=${clipId}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=true`;
     document.getElementById('dockClipPreview').innerHTML = `<iframe src="${clipUrl}" allow="autoplay"></iframe>`;
 
-    // 2. 本番画面（指定音量で再生）
     const vol = parseFloat(document.getElementById('volRange').value) / 100;
-    channel.postMessage({ type: 'PLAY_MEDIA', mediaType: 'clip', id: clipId, volume: vol });
+    sendCommand({ type: 'PLAY_MEDIA', mediaType: 'clip', id: clipId, volume: vol });
   }
 
   function playTopClip() {
@@ -452,13 +520,11 @@
     if (data.data && data.data.length > 0) {
       const vod = data.data[0];
       
-      // ドック手元（VODミュートプレビュー）
       const vodUrl = `https://player.twitch.tv/?video=${vod.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=true`;
       document.getElementById('dockVodPreview').innerHTML = `<iframe src="${vodUrl}" allow="autoplay"></iframe>`;
 
-      // 本番画面送信
       const vol = parseFloat(document.getElementById('volRange').value) / 100;
-      channel.postMessage({ type: 'PLAY_MEDIA', mediaType: 'vod', id: vod.id, volume: vol });
+      sendCommand({ type: 'PLAY_MEDIA', mediaType: 'vod', id: vod.id, volume: vol });
     } else {
       alert('アーカイブ（VOD）が見つかりませんでした');
     }
@@ -467,444 +533,7 @@
   function stopMedia() {
     document.getElementById('dockClipPreview').innerHTML = '';
     document.getElementById('dockVodPreview').innerHTML = '';
-    channel.postMessage({ type: 'STOP_MEDIA' });
-  }
-</script>
-</body>
-</html><!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>Raid Control Tool</title>
-  <!-- Twitch Embed SDK の読み込み -->
-  <script src="https://embed.twitch.tv/embed/v1.js"></script>
-  <style>
-    body {
-      margin: 0;
-      padding: 0;
-      font-family: sans-serif;
-      box-sizing: border-box;
-    }
-
-    /* 本番表示モード (?display あり) */
-    body.mode-display {
-      width: 100vw;
-      height: 100vh;
-      overflow: hidden;
-      background: transparent;
-    }
-    body.mode-display #display-root { display: block; }
-    body.mode-display #dock-root { display: none; }
-    #player-container {
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 640px;
-      height: 360px;
-      background: black;
-      transition: all 0.05s ease-out;
-      pointer-events: none;
-    }
-    #player-container iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-    }
-
-    /* ドックリモコンモード (?display なし) */
-    body.mode-dock {
-      background: #18181b;
-      color: #efeff1;
-      padding: 8px;
-      font-size: 13px;
-    }
-    body.mode-dock #display-root { display: none; }
-    body.mode-dock #dock-root { display: block; }
-
-    .tabs { display: flex; gap: 4px; border-bottom: 2px solid #303036; margin-bottom: 8px; }
-    .tab-btn {
-      flex: 1; padding: 6px; background: #26262c; color: #adadb8;
-      border: none; cursor: pointer; font-weight: bold; border-radius: 4px 4px 0 0;
-    }
-    .tab-btn.active { background: #9146ff; color: #fff; }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
-    .control-group { background: #0e0e10; padding: 8px; border-radius: 6px; margin-bottom: 8px; }
-    .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 6px; }
-    .status-disconnected { background: #3a3a3d; color: #adadb8; }
-    .status-connected { background: #00f592; color: #000; }
-    .slider-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
-    .slider-row label { width: 60px; font-size: 12px; }
-    .slider-row input[type="range"] { flex: 1; }
-    .slider-row span { width: 45px; text-align: right; }
-    
-    button.action-btn {
-      width: 100%; padding: 8px; background: #9146ff; color: white;
-      border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 4px;
-    }
-    button.action-btn:hover { background: #772ce8; }
-    button.sub-btn { background: #26262c; color: #efeff1; }
-    button.sub-btn:hover { background: #3a3a3d; }
-    button.stop-btn { background: #eb0400; }
-    button.stop-btn:hover { background: #c50300; }
-    
-    input[type="text"] {
-      width: 100%; padding: 6px; box-sizing: border-box;
-      background: #26262c; border: 1px solid #464649; color: white; border-radius: 4px; margin-bottom: 6px;
-    }
-
-    .clip-list { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
-    .clip-item-btn {
-      background: #18181b; border: 1px solid #303036; color: #efeff1;
-      padding: 6px 8px; border-radius: 4px; text-align: left; cursor: pointer;
-      font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .clip-item-btn:hover { background: #26262c; border-color: #9146ff; }
-  </style>
-</head>
-<body>
-
-<!-- 本番画面用ルート -->
-<div id="display-root">
-  <div id="player-container"></div>
-</div>
-
-<!-- ドックリモコン用ルート -->
-<div id="dock-root">
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('clip')">クリップ操作</button>
-    <button class="tab-btn" onclick="switchTab('vod')">今日のVOD</button>
-    <button class="tab-btn" onclick="switchTab('settings')">設定</button>
-  </div>
-
-  <div class="control-group">
-    <input type="text" id="targetUser" placeholder="レイド相手のTwitch IDを入力">
-    <button class="action-btn" onclick="loadUserData()">情報を読み込む</button>
-  </div>
-
-  <!-- クリップタブ -->
-  <div id="tab-clip" class="tab-content active">
-    <div class="control-group">
-      <div class="slider-row">
-        <label>🔊 音量</label>
-        <input type="range" id="volRange" min="0" max="100" value="50" oninput="updateVolume()">
-        <span id="valVol">50%</span>
-      </div>
-    </div>
-
-    <button class="action-btn" onclick="playTopClip()">🏆 最高再生数のクリップを再生</button>
-    <button class="action-btn sub-btn" onclick="playFeaturedClip()">🌟 注目のクリップからランダム再生</button>
-    <button class="action-btn sub-btn" onclick="nextClip()">🎲 通常クリップからランダム再生</button>
-    <button class="action-btn stop-btn" onclick="stopMedia()" style="margin-top: 6px;">画面から消す</button>
-
-    <div class="control-group" style="margin-top: 8px;">
-      <h4 style="margin: 0 0 4px 0; font-size: 12px; color: #adadb8;">人気クリップ TOP 5 (クリックで画面再生)</h4>
-      <div id="clipTop5List" class="clip-list">
-        <p style="font-size: 11px; color: #777; margin: 4px 0;">ユーザー情報を読み込むと表示されます</p>
-      </div>
-    </div>
-  </div>
-
-  <!-- VODタブ -->
-  <div id="tab-vod" class="tab-content">
-    <button class="action-btn" onclick="loadTodayVod()">今日の最新VODをソース画面で再生</button>
-    <button class="action-btn stop-btn" onclick="stopMedia()" style="margin-top: 4px;">画面から消す</button>
-  </div>
-
-  <!-- 設定タブ -->
-  <div id="tab-settings" class="tab-content">
-    <div class="control-group">
-      <h4 style="margin: 0 0 4px 0;">Twitch 接続設定</h4>
-      <div id="statusBadge" class="status-badge status-disconnected">未連携</div>
-      <button class="action-btn" id="connectBtn" onclick="loginTwitch()">🟣 Twitchアカウントと連携して接続</button>
-    </div>
-
-    <div class="control-group">
-      <h4 style="margin: 0 0 4px 0;">ブラウザソース用 URL</h4>
-      <input type="text" id="sourceUrlDisplay" readonly onclick="this.select()">
-      <button class="action-btn sub-btn" onclick="copySourceUrl()">📋 ソース用URLをコピー</button>
-    </div>
-
-    <div class="control-group">
-      <h4 style="margin: 0 0 4px 0;">位置・サイズ設定 (リアルタイム反映)</h4>
-      <div class="slider-row"><label>位置 X</label><input type="range" id="posX" min="0" max="1920" value="100" oninput="updateTransform()"><span id="valX">100px</span></div>
-      <div class="slider-row"><label>位置 Y</label><input type="range" id="posY" min="0" max="1080" value="100" oninput="updateTransform()"><span id="valY">100px</span></div>
-      <div class="slider-row"><label>横幅</label><input type="range" id="posW" min="200" max="1920" value="640" oninput="updateTransform()"><span id="valW">640px</span></div>
-    </div>
-  </div>
-</div>
-
-<script>
-  const CLIENT_ID = 'wh00jngjvj1j24n192xjjozyqcgvv4';
-  const REDIRECT_URI = 'https://futabatosiakitw-art.github.io/twitch-raid-tool/';
-  const isDisplayMode = window.location.search.includes('display');
-  const channel = new BroadcastChannel('raid_control_channel');
-
-  if (isDisplayMode) {
-    document.body.classList.add('mode-display');
-    initDisplayMode();
-  } else {
-    document.body.classList.add('mode-dock');
-    initDockMode();
-  }
-
-  // 1. 本番画面処理 (クリップとVODの再生方式分離)
-  function initDisplayMode() {
-    const container = document.getElementById('player-container');
-    let twitchEmbed = null;
-    let currentVolume = 0.5;
-
-    channel.onmessage = (event) => {
-      const data = event.data;
-
-      if (data.type === 'TRANSFORM') {
-        container.style.left = `${data.x}px`;
-        container.style.top = `${data.y}px`;
-        container.style.width = `${data.width}px`;
-        container.style.height = `${Math.round(data.width * 9 / 16)}px`;
-      } 
-      else if (data.type === 'SET_VOLUME') {
-        currentVolume = data.volume;
-        if (twitchEmbed) {
-          try {
-            const player = twitchEmbed.getPlayer();
-            if (player) {
-              player.setVolume(currentVolume);
-              if (currentVolume > 0 && player.isMuted()) player.setMuted(false);
-            }
-          } catch (e) {}
-        }
-      }
-      else if (data.type === 'PLAY_MEDIA') {
-        container.innerHTML = '';
-        if (data.volume !== undefined) currentVolume = data.volume;
-
-        if (data.mediaType === 'clip') {
-          // クリップは iframe で直接埋め込み（音あり自動再生）
-          twitchEmbed = null;
-          const clipUrl = `https://clips.twitch.tv/embed?clip=${data.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=false`;
-          container.innerHTML = `<iframe src="${clipUrl}" allow="autoplay"></iframe>`;
-        } 
-        else if (data.mediaType === 'vod') {
-          // VODは Twitch Embed SDK を使用
-          const options = {
-            width: '100%',
-            height: '100%',
-            parent: ['futabatosiakitw-art.github.io'],
-            autoplay: true,
-            muted: true,
-            video: data.id
-          };
-
-          twitchEmbed = new Twitch.Embed('player-container', options);
-
-          twitchEmbed.addEventListener(Twitch.Embed.VIDEO_READY, () => {
-            const player = twitchEmbed.getPlayer();
-            if (player) {
-              player.play();
-              setTimeout(() => {
-                player.setVolume(currentVolume);
-                player.setMuted(false);
-              }, 300);
-            }
-          });
-        }
-      } 
-      else if (data.type === 'STOP_MEDIA') {
-        container.innerHTML = '';
-        twitchEmbed = null;
-      }
-    };
-  }
-
-  // 2. ドックリモコン処理
-  let accessToken = '';
-  let rawClipsData = [];
-  let clipsPool = [];
-  let featuredClipsPool = [];
-  let currentClipIdx = 0;
-  let currentFeaturedIdx = 0;
-  let currentBroadcasterId = '';
-
-  function initDockMode() {
-    window.onload = () => {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const tokenFromUrl = params.get('access_token');
-
-      if (tokenFromUrl) {
-        accessToken = tokenFromUrl;
-        localStorage.setItem('twitch_access_token', accessToken);
-        history.replaceState(null, null, window.location.pathname);
-      } else {
-        accessToken = localStorage.getItem('twitch_access_token') || '';
-      }
-
-      if (accessToken) {
-        const badge = document.getElementById('statusBadge');
-        badge.className = 'status-badge status-connected';
-        badge.innerText = '✅ 接続済み';
-        document.getElementById('connectBtn').innerText = '🔄 アカウントを再連携する';
-      }
-
-      document.getElementById('sourceUrlDisplay').value = REDIRECT_URI + '?display';
-
-      updateTransform();
-      updateVolume();
-    };
-  }
-
-  function loginTwitch() {
-    const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=`;
-    window.location.href = authUrl;
-  }
-
-  function copySourceUrl() {
-    const urlInput = document.getElementById('sourceUrlDisplay');
-    navigator.clipboard.writeText(urlInput.value).then(() => {
-      alert('ブラウザソース用URLをコピーしました！');
-    });
-  }
-
-  function switchTab(tabName) {
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    event.target.classList.add('active');
-    document.getElementById(`tab-${tabName}`).classList.add('active');
-  }
-
-  function updateTransform() {
-    const x = document.getElementById('posX').value;
-    const y = document.getElementById('posY').value;
-    const w = document.getElementById('posW').value;
-
-    document.getElementById('valX').innerText = `${x}px`;
-    document.getElementById('valY').innerText = `${y}px`;
-    document.getElementById('valW').innerText = `${w}px`;
-
-    channel.postMessage({ type: 'TRANSFORM', x: parseInt(x), y: parseInt(y), width: parseInt(w) });
-  }
-
-  function updateVolume() {
-    const vol = document.getElementById('volRange').value;
-    document.getElementById('valVol').innerText = `${vol}%`;
-    channel.postMessage({ type: 'SET_VOLUME', volume: parseFloat(vol) / 100 });
-  }
-
-  function shuffle(array) {
-    const copy = [...array];
-    for (let i = copy.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [copy[i], copy[j]] = [copy[j], copy[i]];
-    }
-    return copy;
-  }
-
-  async function loadUserData() {
-    const username = document.getElementById('targetUser').value.trim();
-    if (!username) return alert('Twitch IDを入力してください');
-    if (!accessToken) return alert('設定タブで連携を行ってください');
-
-    const res = await fetch(`https://api.twitch.tv/helix/users?login=${username}`, {
-      headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
-    });
-    const data = await res.json();
-    if (data.data && data.data.length > 0) {
-      currentBroadcasterId = data.data[0].id;
-      await fetchClips();
-      alert(`${data.data[0].display_name} さんの情報を読み込みました`);
-    } else {
-      alert('ユーザーが見つかりませんでした');
-    }
-  }
-
-  async function fetchClips() {
-    const res = await fetch(`https://api.twitch.tv/helix/clips?broadcaster_id=${currentBroadcasterId}&first=100`, {
-      headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
-    });
-    const data = await res.json();
-    
-    if (data.data && data.data.length > 0) {
-      rawClipsData = data.data;
-      clipsPool = shuffle(rawClipsData);
-      currentClipIdx = 0;
-
-      renderTop5List(rawClipsData.slice(0, 5));
-
-      const featRes = await fetch(`https://api.twitch.tv/helix/clips?broadcaster_id=${currentBroadcasterId}&is_featured=true&first=100`, {
-        headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
-      });
-      const featData = await featRes.json();
-      
-      if (featData.data && featData.data.length > 0) {
-        featuredClipsPool = shuffle(featData.data);
-      } else {
-        featuredClipsPool = [];
-      }
-      currentFeaturedIdx = 0;
-    }
-  }
-
-  function renderTop5List(clips) {
-    const container = document.getElementById('clipTop5List');
-    container.innerHTML = '';
-
-    clips.forEach((clip, index) => {
-      const btn = document.createElement('button');
-      btn.className = 'clip-item-btn';
-      btn.innerText = `▶ ${index + 1}. ${clip.title} (👀 ${clip.view_count.toLocaleString()}回)`;
-      btn.onclick = () => playClipById(clip.id);
-      container.appendChild(btn);
-    });
-  }
-
-  function playClipById(clipId) {
-    const vol = parseFloat(document.getElementById('volRange').value) / 100;
-    channel.postMessage({ type: 'PLAY_MEDIA', mediaType: 'clip', id: clipId, volume: vol });
-  }
-
-  function playTopClip() {
-    if (rawClipsData.length === 0) return alert('クリップ情報がありません');
-    playClipById(rawClipsData[0].id);
-  }
-
-  function playFeaturedClip() {
-    if (featuredClipsPool.length > 0) {
-      const clip = featuredClipsPool[currentFeaturedIdx];
-      playClipById(clip.id);
-      currentFeaturedIdx = (currentFeaturedIdx + 1) % featuredClipsPool.length;
-      if (currentFeaturedIdx === 0) featuredClipsPool = shuffle(featuredClipsPool);
-    } else {
-      nextClip();
-    }
-  }
-
-  function nextClip() {
-    if (clipsPool.length === 0) return alert('クリップ情報がありません');
-    const clip = clipsPool[currentClipIdx];
-    playClipById(clip.id);
-
-    currentClipIdx = (currentClipIdx + 1) % clipsPool.length;
-    if (currentClipIdx === 0) clipsPool = shuffle(clipsPool);
-  }
-
-  async function loadTodayVod() {
-    if (!currentBroadcasterId) return alert('先にユーザー情報を読み込んでください');
-    const res = await fetch(`https://api.twitch.tv/helix/videos?user_id=${currentBroadcasterId}&type=archive&first=1`, {
-      headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
-    });
-    const data = await res.json();
-    if (data.data && data.data.length > 0) {
-      const vod = data.data[0];
-      const vol = parseFloat(document.getElementById('volRange').value) / 100;
-      channel.postMessage({ type: 'PLAY_MEDIA', mediaType: 'vod', id: vod.id, volume: vol });
-    } else {
-      alert('アーカイブ（VOD）が見つかりませんでした');
-    }
-  }
-
-  function stopMedia() {
-    channel.postMessage({ type: 'STOP_MEDIA' });
+    sendCommand({ type: 'STOP_MEDIA' });
   }
 </script>
 </body>
