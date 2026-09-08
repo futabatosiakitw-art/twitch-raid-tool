@@ -175,7 +175,7 @@
     initDockMode();
   }
 
-  // 1. 本番画面処理 (SDK制御による自動アンミュート実装)
+  // 1. 本番画面処理 (クリップとVODの再生方式分離)
   function initDisplayMode() {
     const container = document.getElementById('player-container');
     let twitchEmbed = null;
@@ -184,14 +184,12 @@
     channel.onmessage = (event) => {
       const data = event.data;
 
-      // 変形処理
       if (data.type === 'TRANSFORM') {
         container.style.left = `${data.x}px`;
         container.style.top = `${data.y}px`;
         container.style.width = `${data.width}px`;
         container.style.height = `${Math.round(data.width * 9 / 16)}px`;
       } 
-      // リアルタイム音量調整
       else if (data.type === 'SET_VOLUME') {
         currentVolume = data.volume;
         if (twitchEmbed) {
@@ -199,47 +197,46 @@
             const player = twitchEmbed.getPlayer();
             if (player) {
               player.setVolume(currentVolume);
-              if (currentVolume > 0 && player.isMuted()) {
-                player.setMuted(false);
-              }
+              if (currentVolume > 0 && player.isMuted()) player.setMuted(false);
             }
           } catch (e) {}
         }
       }
-      // クリップ / VOD 再生処理
       else if (data.type === 'PLAY_MEDIA') {
         container.innerHTML = '';
         if (data.volume !== undefined) currentVolume = data.volume;
 
-        const options = {
-          width: '100%',
-          height: '100%',
-          parent: ['futabatosiakitw-art.github.io'],
-          autoplay: true,
-          muted: true // 自動再生ブロック回避のため初期状態はミュート
-        };
-
         if (data.mediaType === 'clip') {
-          options.clip = data.id;
-        } else if (data.mediaType === 'vod') {
-          options.video = data.id;
+          // クリップは iframe で直接埋め込み（音あり自動再生）
+          twitchEmbed = null;
+          const clipUrl = `https://clips.twitch.tv/embed?clip=${data.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=false`;
+          container.innerHTML = `<iframe src="${clipUrl}" allow="autoplay"></iframe>`;
+        } 
+        else if (data.mediaType === 'vod') {
+          // VODは Twitch Embed SDK を使用
+          const options = {
+            width: '100%',
+            height: '100%',
+            parent: ['futabatosiakitw-art.github.io'],
+            autoplay: true,
+            muted: true,
+            video: data.id
+          };
+
+          twitchEmbed = new Twitch.Embed('player-container', options);
+
+          twitchEmbed.addEventListener(Twitch.Embed.VIDEO_READY, () => {
+            const player = twitchEmbed.getPlayer();
+            if (player) {
+              player.play();
+              setTimeout(() => {
+                player.setVolume(currentVolume);
+                player.setMuted(false);
+              }, 300);
+            }
+          });
         }
-
-        twitchEmbed = new Twitch.Embed('player-container', options);
-
-        // プレイヤー準備完了時に自動アンミュート＆指定音量を適用
-        twitchEmbed.addEventListener(Twitch.Embed.VIDEO_READY, () => {
-          const player = twitchEmbed.getPlayer();
-          if (player) {
-            player.play();
-            setTimeout(() => {
-              player.setVolume(currentVolume);
-              player.setMuted(false);
-            }, 300);
-          }
-        });
       } 
-      // 画面から消す
       else if (data.type === 'STOP_MEDIA') {
         container.innerHTML = '';
         twitchEmbed = null;
