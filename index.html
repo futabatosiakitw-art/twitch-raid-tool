@@ -3,51 +3,114 @@
 <head>
   <meta charset="UTF-8">
   <title>Raid Control Tool</title>
+  <!-- Twitch Embed SDK & PeerJS(WebRTC通信) の読み込み -->
   <script src="https://embed.twitch.tv/embed/v1.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <style>
     :root { --bg: #0e0e10; --card: #1f1f23; --accent: #9146ff; --text: #efeff1; --text-muted: #adadb8; }
-    body { margin: 0; padding: 8px; background: var(--bg); color: var(--text); font-family: sans-serif; font-size: 11px; box-sizing: border-box; user-select: none; }
-    
+    body { margin: 0; padding: 0; font-family: sans-serif; box-sizing: border-box; }
+
     /* 本番表示モード (?display あり) */
-    body.mode-display { width: 100vw; height: 100vh; overflow: hidden; background: transparent; padding: 0; }
+    body.mode-display {
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: transparent;
+    }
     body.mode-display #display-root { display: block; }
     body.mode-display #dock-root { display: none; }
-    #player-container { position: absolute; top: 0; left: 0; width: 640px; height: 360px; background: black; }
-    #player-container video, #player-container iframe { width: 100%; height: 100%; object-fit: contain; border: none; }
+    #player-container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 640px;
+      height: 360px;
+      background: black;
+      transition: all 0.05s ease-out;
+    }
+    #player-container iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
 
     /* ドックリモコンモード (?display なし) */
-    body.mode-dock { display: block; max-width: 450px; margin: 0 auto; }
+    body.mode-dock {
+      background: var(--bg);
+      color: var(--text);
+      padding: 8px;
+      font-size: 13px;
+      max-width: 450px;
+      margin: 0 auto;
+    }
     body.mode-dock #display-root { display: none; }
     body.mode-dock #dock-root { display: block; }
 
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #303036; padding-bottom: 4px; }
-    .header h2 { margin: 0; font-size: 13px; color: var(--accent); }
-    
+    /* 通知バナー用スタイル */
+    .toast-banner {
+      display: none;
+      padding: 8px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .toast-success { background: #00f592; color: #000; }
+    .toast-error { background: #eb0400; color: #fff; }
+
     .tabs { display: flex; gap: 4px; border-bottom: 2px solid #303036; margin-bottom: 8px; }
-    .tab-btn { flex: 1; padding: 6px; background: #26262c; color: var(--text-muted); border: none; cursor: pointer; font-weight: bold; border-radius: 4px 4px 0 0; font-size: 11px; }
+    .tab-btn {
+      flex: 1; padding: 6px; background: #26262c; color: var(--text-muted);
+      border: none; cursor: pointer; font-weight: bold; border-radius: 4px 4px 0 0; font-size: 11px;
+    }
     .tab-btn.active { background: var(--accent); color: #fff; }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
-
-    .control-group { background: var(--card); padding: 8px; border-radius: 4px; margin-bottom: 8px; border-left: 3px solid var(--accent); }
-    input[type="text"], input[type="password"] { width: 100%; padding: 6px; background: #000; color: #fff; border: 1px solid #464649; margin: 4px 0; box-sizing: border-box; font-size: 11px; border-radius: 4px; }
-    
-    button { background: #26262c; border: 1px solid #464649; color: var(--text); padding: 7px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; width: 100%; margin-top: 4px; }
-    button:hover { background: #303036; border-color: var(--accent); }
-    .btn-primary { background: var(--accent); color: white; border: none; }
-    .btn-primary:hover { background: #772ce8; }
-    .btn-danger { background: #eb0400; color: white; border: none; }
-    .btn-danger:hover { background: #c50300; }
-    .btn-sub { background: #26262c; color: var(--text); }
-
+    .control-group { background: var(--card); padding: 8px; border-radius: 6px; margin-bottom: 8px; border-left: 3px solid var(--accent); }
+    .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: bold; margin-bottom: 6px; }
+    .status-disconnected { background: #3a3a3d; color: var(--text-muted); }
+    .status-connected { background: #00f592; color: #000; }
     .slider-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
     .slider-row label { width: 50px; font-size: 11px; color: var(--text-muted); }
     .slider-row input[type="range"] { flex: 1; }
     .slider-row span { width: 35px; text-align: right; }
+    
+    button {
+      width: 100%; padding: 7px; background: var(--accent); color: white;
+      border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 4px; font-size: 11px;
+    }
+    button:hover { background: #772ce8; }
+    .btn-sub { background: #26262c; color: var(--text); }
+    .btn-sub:hover { background: #3a3a3d; }
+    .btn-danger { background: #eb0400; }
+    .btn-danger:hover { background: #c50300; }
+    
+    input[type="text"], input[type="password"] {
+      width: 100%; padding: 6px; box-sizing: border-box;
+      background: #000; border: 1px solid #464649; color: white; border-radius: 4px; margin-bottom: 6px; font-size: 11px;
+    }
 
-    .clip-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; }
-    .clip-item-btn { background: #18181b; border: 1px solid #303036; color: var(--text); padding: 6px; border-radius: 4px; text-align: left; cursor: pointer; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin: 0; }
+    .dock-preview-box {
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #000;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .dock-preview-box iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+
+    .clip-list { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; max-height: 150px; overflow-y: auto; }
+    .clip-item-btn {
+      background: #18181b; border: 1px solid #303036; color: var(--text);
+      padding: 6px 8px; border-radius: 4px; text-align: left; cursor: pointer;
+      font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin: 0;
+    }
     .clip-item-btn:hover { background: #26262c; border-color: var(--accent); }
   </style>
 
@@ -65,7 +128,7 @@
         document.body.innerHTML = `
           <div style="padding: 20px; text-align: center; background: #18181b; color: white; height: 100vh; font-family: sans-serif;">
             <h2 style="color: #00f592; margin-top: 20px;">✅ トークン取得成功！</h2>
-            <p style="font-size: 13px; color: #adadb8;">以下のトークンをコピーして、OBSのリモコンツールの設定に貼り付けてください。</p>
+            <p style="font-size: 13px; color: #adadb8;">以下のトークンをコピーして、設定タブのトークン欄に貼り付けてください。</p>
             <input type="text" value="${tokenFromUrl}" readonly onclick="this.select()" style="width: 90%; max-width: 400px; padding: 12px; margin: 10px 0; text-align: center; font-weight: bold; background: #26262c; color: white; border: 1px solid #464649; border-radius: 4px;">
             <br>
             <button onclick="navigator.clipboard.writeText('${tokenFromUrl}').then(() => alert('コピーしました！このウィンドウを閉じてOBSに戻ってください。'))" style="padding: 12px 24px; background: #9146ff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 10px;">📋 トークンをコピー</button>
@@ -86,10 +149,14 @@
   <div id="player-container"></div>
 </div>
 
-<!-- ドックリモコンモード (?display なし) -->
+<!-- ドックリモコン用ルート (?display なし) -->
 <div id="dock-root">
-  <div class="header">
-    <h2>Raid Control Hub <span id="conn-status" style="font-size:9px; color:#ff4f4f;">● 未接続</span></h2>
+  <!-- 通知バナー -->
+  <div id="toastBanner" class="toast-banner"></div>
+
+  <div class="header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #303036; padding-bottom: 4px;">
+    <h2 style="margin: 0; font-size: 13px; color: var(--accent);">Raid Control Hub</h2>
+    <span id="conn-status" style="font-size:9px; color:#ff4f4f;">● 未接続</span>
   </div>
 
   <div class="tabs">
@@ -103,9 +170,12 @@
     <div class="control-group">
       <div style="display:flex; gap:4px;">
         <input type="text" id="targetUser" placeholder="レイド相手のTwitch IDを入力" style="margin:0;">
-        <button type="button" class="btn-primary" onclick="loadUserData()" style="margin:0; width:100px;">情報読込</button>
+        <button type="button" onclick="loadUserData()" style="margin:0; width:100px;">情報読込</button>
       </div>
     </div>
+
+    <!-- ドック側のプレビュー画面（ここで直接クリック＆ミュート解除可能） -->
+    <div class="dock-preview-box" id="dockClipPreview"></div>
 
     <div class="control-group">
       <div class="slider-row">
@@ -115,13 +185,13 @@
       </div>
     </div>
 
-    <button type="button" class="btn-primary" onclick="playTopClip()">🏆 最高再生数のクリップを再生</button>
+    <button type="button" onclick="playTopClip()">🏆 最高再生数のクリップを再生</button>
     <button type="button" class="btn-sub" onclick="playFeaturedClip()">🌟 注目のクリップからランダム再生</button>
     <button type="button" class="btn-sub" onclick="nextClip()">🎲 通常クリップからランダム再生</button>
-    <button type="button" class="btn-danger" onclick="stopMedia()">画面から消す</button>
+    <button type="button" class="btn-danger" onclick="stopMedia()" style="margin-top: 6px;">画面から消す</button>
 
     <div class="control-group" style="margin-top: 8px;">
-      <div style="font-weight: bold; margin-bottom: 4px; color: var(--text-muted);">人気クリップ TOP 5 (クリックでOBSに送信)</div>
+      <div style="font-weight: bold; margin-bottom: 4px; color: var(--text-muted);">人気クリップ TOP 5 (クリックで再生)</div>
       <div id="clipTop5List" class="clip-list">
         <div style="color: #666; font-size: 10px;">ユーザー情報を読み込むと表示されます</div>
       </div>
@@ -130,7 +200,8 @@
 
   <!-- VODタブ -->
   <div id="tab-vod" class="tab-content">
-    <button type="button" class="btn-primary" onclick="loadTodayVod()">今日の最新VODを再生</button>
+    <div class="dock-preview-box" id="dockVodPreview"></div>
+    <button type="button" onclick="loadTodayVod()">今日の最新VODを再生</button>
     <button type="button" class="btn-danger" onclick="stopMedia()" style="margin-top: 6px;">画面から消す</button>
   </div>
 
@@ -140,7 +211,7 @@
       <div style="font-weight: bold; margin-bottom: 4px; color: var(--accent);">1. Twitch 認証設定</div>
       <button type="button" onclick="openAuthPage()">🔑 認証ページを開いてトークンを取得</button>
       <input type="text" id="token-input" placeholder="取得したアクセストークンをここに貼り付け">
-      <button type="button" class="btn-primary" onclick="startConnection()">💾 保存 ＆ 接続開始</button>
+      <button type="button" onclick="startConnection()">💾 保存 ＆ 接続開始</button>
     </div>
 
     <div class="control-group">
@@ -187,6 +258,15 @@
     initDockMode();
   }
 
+  function showBanner(msg, isError = false) {
+    const banner = document.getElementById('toastBanner');
+    if (!banner) return;
+    banner.innerText = msg;
+    banner.className = `toast-banner ${isError ? 'toast-error' : 'toast-success'}`;
+    banner.style.display = 'block';
+    setTimeout(() => { banner.style.display = 'none'; }, 4000);
+  }
+
   function switchTab(tabName, btnEl) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
@@ -194,6 +274,9 @@
     document.getElementById(`tab-${tabName}`).classList.add('active');
   }
 
+  // ==========================================
+  // 1. 本番画面処理 (?display&room=XXXX)
+  // ==========================================
   function initDisplayMode() {
     const container = document.getElementById('player-container');
     let twitchEmbed = null;
@@ -216,9 +299,6 @@
       } 
       else if (data.type === 'SET_VOLUME') {
         currentVolume = data.volume;
-        const videoEl = container.querySelector('video');
-        if (videoEl) videoEl.volume = currentVolume;
-
         if (twitchEmbed) {
           try {
             const player = twitchEmbed.getPlayer();
@@ -235,13 +315,8 @@
 
         if (data.mediaType === 'clip') {
           twitchEmbed = null;
-          // HTML5の <video> タグでMP4を直接再生（ミュート解除ボタンなし・自動再生対応）
-          container.innerHTML = `<video src="${data.mp4Url}" autoplay playsinline></video>`;
-          const videoEl = container.querySelector('video');
-          if (videoEl) {
-            videoEl.volume = currentVolume;
-            videoEl.onended = () => { container.innerHTML = ''; };
-          }
+          const clipUrl = `https://clips.twitch.tv/embed?clip=${data.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=false`;
+          container.innerHTML = `<iframe src="${clipUrl}" allow="autoplay; encrypted-media"></iframe>`;
         } 
         else if (data.mediaType === 'vod') {
           const options = {
@@ -270,6 +345,9 @@
     }
   }
 
+  // ==========================================
+  // 2. ドックリモコン処理 (?display なし)
+  // ==========================================
   function initDockMode() {
     peer = new Peer();
     peer.on('open', () => connectToDisplay());
@@ -328,14 +406,14 @@
         status.style.color = '#00f076';
       }
       document.getElementById('token-input').value = accessToken;
-      alert(`✅ 接続成功！ (${data.login} さんで接続しました)`);
+      showBanner(`✅ 接続成功！ (${data.login} さんで接続しました)`);
     } catch(e) {
       const status = document.getElementById('conn-status');
       if (status) {
         status.innerText = '● トークン要再取得';
         status.style.color = '#ff4f4f';
       }
-      alert('❌ トークンが無効または期限切れです');
+      showBanner('❌ トークンが無効または期限切れです', true);
     }
   }
 
@@ -346,7 +424,7 @@
     localStorage.setItem('tw_room_id', roomId);
     updateSourceUrlDisplay();
     connectToDisplay();
-    alert('✅ 通信IDを適用し、URLを更新しました！');
+    showBanner('✅ 通信IDを適用し、URLを更新しました！');
   }
 
   function updateSourceUrlDisplay() {
@@ -377,7 +455,7 @@
     const urlInput = document.getElementById('sourceUrlDisplay');
     urlInput.select();
     navigator.clipboard.writeText(urlInput.value).then(() => {
-      alert('📋 ブラウザソース用URLをコピーしました！');
+      showBanner('📋 ブラウザソース用URLをコピーしました！');
     });
   }
 
@@ -408,8 +486,8 @@
 
   async function loadUserData() {
     const username = document.getElementById('targetUser').value.trim();
-    if (!username) { alert('レイド相手のTwitch IDを入力してください'); return; }
-    if (!accessToken) { alert('「設定」タブからトークンを設定してください'); return; }
+    if (!username) { showBanner('レイド相手のTwitch IDを入力してください', true); return; }
+    if (!accessToken) { showBanner('「設定」タブからトークンを設定してください', true); return; }
 
     try {
       const res = await fetch(`https://api.twitch.tv/helix/users?login=${username}`, {
@@ -419,12 +497,12 @@
       if (data.data && data.data.length > 0) {
         currentBroadcasterId = data.data[0].id;
         await fetchClips();
-        alert(`✅ ${data.data[0].display_name} さんの情報を読み込みました！`);
+        showBanner(`✅ ${data.data[0].display_name} さんの情報を読み込みました！`);
       } else {
-        alert('ユーザーが見つかりませんでした');
+        showBanner('ユーザーが見つかりませんでした', true);
       }
     } catch(e) {
-      alert('情報の取得に失敗しました');
+      showBanner('情報の取得に失敗しました', true);
     }
   }
 
@@ -462,19 +540,16 @@
   }
 
   function playClipById(clipId) {
-    const clip = rawClipsData.find(c => c.id === clipId) || featuredClipsPool.find(c => c.id === clipId);
-    if (!clip) return;
-    
-    // サムネイルURLのプレビュー部分を削って正確なMP4のCDN URLを生成する
-    const baseUrl = clip.thumbnail_url.split('-preview')[0];
-    const mp4Url = baseUrl + '.mp4';
-    
+    // ドック側のプレビューにも反映（ここで直接クリックして音が出せる）
+    const clipUrl = `https://clips.twitch.tv/embed?clip=${clipId}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=false`;
+    document.getElementById('dockClipPreview').innerHTML = `<iframe src="${clipUrl}" allow="autoplay; encrypted-media"></iframe>`;
+
     const vol = parseFloat(document.getElementById('volRange').value) / 100;
-    sendCommand({ type: 'PLAY_MEDIA', mediaType: 'clip', id: clipId, mp4Url: mp4Url, volume: vol });
+    sendCommand({ type: 'PLAY_MEDIA', mediaType: 'clip', id: clipId, volume: vol });
   }
 
   function playTopClip() {
-    if (rawClipsData.length === 0) { alert('先にクリップ情報を読み込んでください'); return; }
+    if (rawClipsData.length === 0) { showBanner('先にクリップ情報を読み込んでください', true); return; }
     playClipById(rawClipsData[0].id);
   }
 
@@ -490,7 +565,7 @@
   }
 
   function nextClip() {
-    if (clipsPool.length === 0) { alert('クリップ情報がありません'); return; }
+    if (clipsPool.length === 0) { showBanner('クリップ情報がありません', true); return; }
     const clip = clipsPool[currentClipIdx];
     playClipById(clip.id);
     currentClipIdx = (currentClipIdx + 1) % clipsPool.length;
@@ -498,21 +573,27 @@
   }
 
   async function loadTodayVod() {
-    if (!currentBroadcasterId) { alert('先にクリップタブでユーザー情報を読み込んでください'); return; }
+    if (!currentBroadcasterId) { showBanner('先にクリップタブでユーザー情報を読み込んでください', true); return; }
     const res = await fetch(`https://api.twitch.tv/helix/videos?user_id=${currentBroadcasterId}&type=archive&first=1`, {
       headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
     });
     const data = await res.json();
     if (data.data && data.data.length > 0) {
       const vod = data.data[0];
+      
+      const vodUrl = `https://player.twitch.tv/?video=${vod.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=false`;
+      document.getElementById('dockVodPreview').innerHTML = `<iframe src="${vodUrl}" allow="autoplay; encrypted-media"></iframe>`;
+
       const vol = parseFloat(document.getElementById('volRange').value) / 100;
       sendCommand({ type: 'PLAY_MEDIA', mediaType: 'vod', id: vod.id, volume: vol });
     } else {
-      alert('アーカイブ（VOD）が見つかりませんでした');
+      showBanner('アーカイブ（VOD）が見つかりませんでした', true);
     }
   }
 
   function stopMedia() {
+    document.getElementById('dockClipPreview').innerHTML = '';
+    document.getElementById('dockVodPreview').innerHTML = '';
     sendCommand({ type: 'STOP_MEDIA' });
   }
 </script>
