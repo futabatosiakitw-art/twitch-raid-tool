@@ -53,6 +53,37 @@
     .clip-item-btn { background: #18181b; border: 1px solid #303036; color: var(--text); padding: 6px; border-radius: 4px; text-align: left; cursor: pointer; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; margin: 0; }
     .clip-item-btn:hover { background: #26262c; border-color: var(--accent); }
   </style>
+
+  <script>
+    const CLIENT_ID = 'wh00jngjvj1j24n192xjjozyqcgvv4';
+    const REDIRECT_URI = 'https://futabatosiakitw-art.github.io/twitch-raid-tool/';
+
+    // ページ読み込み時にURLのパラメータやハッシュを監視して認証画面をサンドイッチする処理
+    const pathParams = new URLSearchParams(window.location.search);
+    const hashData = window.location.hash.substring(1);
+    const hashParams = new URLSearchParams(hashData);
+    const tokenFromUrl = hashParams.get('access_token');
+
+    if (tokenFromUrl) {
+      // 認証完了後のトークン表示画面
+      window.onload = () => {
+        document.body.innerHTML = `
+          <div style="padding: 20px; text-align: center; background: #18181b; color: white; height: 100vh; font-family: sans-serif;">
+            <h2 style="color: #00f592; margin-top: 20px;">✅ トークン取得成功！</h2>
+            <p style="font-size: 13px; color: #adadb8;">以下のトークンをコピーして、OBSのリモコンツールの設定に貼り付けてください。</p>
+            <input type="text" value="${tokenFromUrl}" readonly onclick="this.select()" style="width: 90%; max-width: 400px; padding: 12px; margin: 10px 0; text-align: center; font-weight: bold; background: #26262c; color: white; border: 1px solid #464649; border-radius: 4px;">
+            <br>
+            <button onclick="navigator.clipboard.writeText('${tokenFromUrl}').then(() => alert('コピーしました！このウィンドウを閉じてOBSに戻ってください。'))" style="padding: 12px 24px; background: #9146ff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 10px;">📋 トークンをコピー</button>
+          </div>
+        `;
+      };
+      throw new Error('Auth Token Display Mode');
+    } else if (pathParams.has('auth')) {
+      // Twitchの認証ページへ強制ジャンプするモード
+      window.location.replace(`https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`);
+      throw new Error('Redirecting to Twitch Auth');
+    }
+  </script>
 </head>
 <body>
 
@@ -140,8 +171,6 @@
 </div>
 
 <script>
-  const CLIENT_ID = 'wh00jngjvj1j24n192xjjozyqcgvv4';
-  const REDIRECT_URI = 'https://futabatosiakitw-art.github.io/twitch-raid-tool/';
   const urlParams = new URLSearchParams(window.location.search);
   const isDisplayMode = urlParams.has('display');
   const roomIdParam = urlParams.get('room');
@@ -165,9 +194,6 @@
     document.getElementById(`tab-${tabName}`).classList.add('active');
   }
 
-  // ==========================================
-  // 1. 本番画面処理 (?display&room=XXXX)
-  // ==========================================
   function initDisplayMode() {
     const container = document.getElementById('player-container');
     let twitchEmbed = null;
@@ -235,9 +261,6 @@
     }
   }
 
-  // ==========================================
-  // 2. ドックリモコン処理 (?display なし)
-  // ==========================================
   let rawClipsData = [];
   let clipsPool = [];
   let featuredClipsPool = [];
@@ -266,9 +289,8 @@
   }
 
   function openAuthPage() {
-    // 独立した auth.html を別窓で開く
-    const authPageUrl = REDIRECT_URI.replace('index.html', '') + 'auth.html';
-    window.open(authPageUrl, '_blank', 'width=500,height=600');
+    // ?auth をつけて別窓で開くことで専用の認証ポップアップとして機能させる
+    window.open(REDIRECT_URI + '?auth', '_blank', 'width=500,height=600');
   }
 
   function startConnection() {
