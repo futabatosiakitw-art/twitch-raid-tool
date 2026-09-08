@@ -114,9 +114,9 @@
 <!-- ドックリモコン用ルート (?display なし) -->
 <div id="dock-root">
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('clip')">クリップ操作</button>
-    <button class="tab-btn" onclick="switchTab('vod')">今日のVOD</button>
-    <button class="tab-btn" onclick="switchTab('settings')">設定</button>
+    <button class="tab-btn active" onclick="switchTab('clip', this)">クリップ操作</button>
+    <button class="tab-btn" onclick="switchTab('vod', this)">今日のVOD</button>
+    <button class="tab-btn" onclick="switchTab('settings', this)">設定</button>
   </div>
 
   <div class="control-group">
@@ -197,14 +197,12 @@
 
   const channel = new BroadcastChannel('raid_control_channel');
 
-  // 暗号論的に安全なランダムID生成関数
   function generateSecureRoomId() {
     const array = new Uint8Array(12);
     window.crypto.getRandomValues(array);
     return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
   }
 
-  // ルームID（初回時に自動で安全なランダムIDを生成し、保存）
   let roomId = roomIdParam || localStorage.getItem('raid_tool_room_id');
   if (!roomId) {
     roomId = generateSecureRoomId();
@@ -217,6 +215,23 @@
   } else {
     document.body.classList.add('mode-dock');
     initDockMode();
+  }
+
+  // タブ切り替え関数
+  function switchTab(tabName, btnEl) {
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+    
+    if (btnEl) {
+      btnEl.classList.add('active');
+    } else {
+      const btnIdx = tabName === 'clip' ? 0 : tabName === 'vod' ? 1 : 2;
+      const btns = document.querySelectorAll('.tab-btn');
+      if (btns[btnIdx]) btns[btnIdx].classList.add('active');
+    }
+    
+    const targetTab = document.getElementById(`tab-${tabName}`);
+    if (targetTab) targetTab.classList.add('active');
   }
 
   // ==========================================
@@ -309,32 +324,51 @@
     peer = new Peer();
     peer.on('open', () => connectToDisplay());
 
-    window.onload = () => {
-      const hash = window.location.hash.substring(1);
-      const params = new URLSearchParams(hash);
-      const tokenFromUrl = params.get('access_token');
+    document.addEventListener('DOMContentLoaded', () => setupDockUI());
+    if (document.readyState === 'interactive' || document.readyState === 'complete') {
+      setupDockUI();
+    }
+  }
 
-      if (tokenFromUrl) {
-        accessToken = tokenFromUrl;
-        localStorage.setItem('twitch_access_token', accessToken);
-        history.replaceState(null, null, window.location.pathname);
-      } else {
-        accessToken = localStorage.getItem('twitch_access_token') || '';
-      }
+  let isDockSetupDone = false;
+  function setupDockUI() {
+    if (isDockSetupDone) return;
+    isDockSetupDone = true;
 
-      if (accessToken) {
-        const badge = document.getElementById('statusBadge');
+    const hash = window.location.hash.substring(1);
+    const params = new URLSearchParams(hash);
+    const tokenFromUrl = params.get('access_token');
+
+    if (tokenFromUrl) {
+      accessToken = tokenFromUrl;
+      localStorage.setItem('twitch_access_token', accessToken);
+      history.replaceState(null, null, window.location.pathname);
+      
+      // 連携完了時は設定タブに留まり、通知を表示
+      switchTab('settings');
+      setTimeout(() => alert('✅ Twitchアカウントとの連携が完了しました！'), 100);
+    } else {
+      accessToken = localStorage.getItem('twitch_access_token') || '';
+    }
+
+    if (accessToken) {
+      const badge = document.getElementById('statusBadge');
+      if (badge) {
         badge.className = 'status-badge status-connected';
         badge.innerText = '✅ 接続済み';
-        document.getElementById('connectBtn').innerText = '🔄 アカウントを再連携する';
       }
+      const connectBtn = document.getElementById('connectBtn');
+      if (connectBtn) {
+        connectBtn.innerText = '🔄 アカウントを再連携する';
+      }
+    }
 
-      document.getElementById('roomIdInput').value = roomId;
-      updateSourceUrlDisplay();
+    const roomIdElem = document.getElementById('roomIdInput');
+    if (roomIdElem) roomIdElem.value = roomId;
 
-      updateTransform();
-      updateVolume();
-    };
+    updateSourceUrlDisplay();
+    updateTransform();
+    updateVolume();
   }
 
   function updateSourceUrlDisplay() {
@@ -384,13 +418,6 @@
     navigator.clipboard.writeText(urlInput.value).then(() => {
       alert('ブラウザソース用URLをコピーしました！\nOBSの「ブラウザソース」のURL欄に貼り付けてください。');
     });
-  }
-
-  function switchTab(tabName) {
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    event.target.classList.add('active');
-    document.getElementById(`tab-${tabName}`).classList.add('active');
   }
 
   function updateTransform() {
