@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Twitch Auth Helper</title>
+  <style>
+    body { background: #18181b; color: white; font-family: sans-serif; text-align: center; padding: 40px; }
+    input { width: 100%; max-width: 500px; padding: 10px; background: #26262c; color: white; border: 1px solid #464649; border-radius: 4px; font-size: 14px; text-align: center; margin: 10px 0; }
+    button { padding: 10px 20px; background: #9146ff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; }
+    button:hover { background: #772ce8; }
+  </style>
+</head>
+<body>
+  <h2>Twitch 認証トークン取得</h2>
+  <div id="result">
+    <p>Twitch認証へリダイレクト中...</p>
+  </div>
+<script>
+  const CLIENT_ID = 'wh00jngjvj1j24n192xjjozyqcgvv4';
+  const REDIRECT_URI = window.location.origin + window.location.pathname;
+
+  const hash = window.location.hash;
+  if (hash.includes('access_token=')) {
+    const params = new URLSearchParams(hash.substring(1));
+    const token = params.get('access_token');
+    document.getElementById('result').innerHTML = `
+      <h3 style="color: #00f592;">✅ トークンの取得に成功しました！</h3>
+      <p style="color: #adadb8;">以下のトークンをコピーして、OBSのレイドコントロールツールに貼り付けてください。</p>
+      <input type="text" value="${token}" readonly onclick="this.select()">
+      <br><br>
+      <button onclick="navigator.clipboard.writeText('${token}').then(() => alert('コピーしました！OBSに戻ってください。'))">📋 トークンをコピー</button>
+    `;
+  } else {
+    const authUrl = `https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+    window.location.href = authUrl;
+  }
+</script>
+</body>
+</html>
