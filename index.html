@@ -14,7 +14,7 @@
     body.mode-display #display-root { display: block; }
     body.mode-display #dock-root { display: none; }
     #player-container { position: absolute; top: 0; left: 0; width: 640px; height: 360px; background: black; }
-    #player-container iframe { width: 100%; height: 100%; border: none; }
+    #player-container video, #player-container iframe { width: 100%; height: 100%; object-fit: contain; border: none; }
 
     /* ドックリモコンモード (?display なし) */
     body.mode-dock { display: block; max-width: 450px; margin: 0 auto; }
@@ -216,6 +216,9 @@
       } 
       else if (data.type === 'SET_VOLUME') {
         currentVolume = data.volume;
+        const videoEl = container.querySelector('video');
+        if (videoEl) videoEl.volume = currentVolume;
+
         if (twitchEmbed) {
           try {
             const player = twitchEmbed.getPlayer();
@@ -232,9 +235,13 @@
 
         if (data.mediaType === 'clip') {
           twitchEmbed = null;
-          // 公式の安定したクリップ埋め込みiframeを使用
-          const clipUrl = `https://clips.twitch.tv/embed?clip=${data.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=false`;
-          container.innerHTML = `<iframe src="${clipUrl}" allow="autoplay; encrypted-media"></iframe>`;
+          // HTML5の <video> タグでMP4を直接再生（ミュート解除ボタンなし・自動再生対応）
+          container.innerHTML = `<video src="${data.mp4Url}" autoplay playsinline></video>`;
+          const videoEl = container.querySelector('video');
+          if (videoEl) {
+            videoEl.volume = currentVolume;
+            videoEl.onended = () => { container.innerHTML = ''; };
+          }
         } 
         else if (data.mediaType === 'vod') {
           const options = {
@@ -455,8 +462,15 @@
   }
 
   function playClipById(clipId) {
+    const clip = rawClipsData.find(c => c.id === clipId) || featuredClipsPool.find(c => c.id === clipId);
+    if (!clip) return;
+    
+    // サムネイルURLのプレビュー部分を削って正確なMP4のCDN URLを生成する
+    const baseUrl = clip.thumbnail_url.split('-preview')[0];
+    const mp4Url = baseUrl + '.mp4';
+    
     const vol = parseFloat(document.getElementById('volRange').value) / 100;
-    sendCommand({ type: 'PLAY_MEDIA', mediaType: 'clip', id: clipId, volume: vol });
+    sendCommand({ type: 'PLAY_MEDIA', mediaType: 'clip', id: clipId, mp4Url: mp4Url, volume: vol });
   }
 
   function playTopClip() {
