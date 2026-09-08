@@ -10,14 +10,14 @@
     body { margin: 0; padding: 8px; background: var(--bg); color: var(--text); font-family: sans-serif; font-size: 11px; box-sizing: border-box; user-select: none; }
     
     /* 本番表示モード (?display あり) */
-    body.mode-display { width: 100vw; height: 100vw; overflow: hidden; background: transparent; padding: 0; }
+    body.mode-display { width: 100vw; height: 100vh; overflow: hidden; background: transparent; padding: 0; }
     body.mode-display #display-root { display: block; }
     body.mode-display #dock-root { display: none; }
     #player-container { position: absolute; top: 0; left: 0; width: 640px; height: 360px; background: black; pointer-events: none; }
     #player-container iframe { width: 100%; height: 100%; border: none; }
 
     /* ドックリモコンモード (?display なし) */
-    body.mode-dock { display: block; }
+    body.mode-dock { display: block; max-width: 450px; margin: 0 auto; }
     body.mode-dock #display-root { display: none; }
     body.mode-dock #dock-root { display: block; }
 
@@ -61,8 +61,8 @@
   <div id="player-container"></div>
 </div>
 
-<!-- ドックリモコン用ルート (?display なし) -->
-<div id="dock-root" style="max-width: 450px; margin: 0 auto;">
+<!-- ドックリモコンモード (?display なし) -->
+<div id="dock-root">
   <div class="header">
     <h2>Raid Control Hub <span id="conn-status" style="font-size:9px; color:#ff4f4f;">● 未接続</span></h2>
   </div>
@@ -117,7 +117,7 @@
     <div class="control-group">
       <div style="font-weight: bold; margin-bottom: 4px; color: var(--accent);">1. Twitch 認証設定</div>
       <button type="button" onclick="openAuthPage()">🔑 認証ページを開いてトークンを取得</button>
-      <input type="text" id="token-input" placeholder="取得したアクセストークンをここに貼り付け">
+      <input type="password" id="token-input" placeholder="取得したアクセストークンをここに貼り付け">
       <button type="button" class="btn-primary" onclick="startConnection()">💾 保存 ＆ 接続開始</button>
     </div>
 
@@ -248,6 +248,18 @@
   let conn = null;
 
   function initDockMode() {
+    // ページロード時（またはリダイレクト戻り時）にハッシュからトークンを自動回収する参考パターン[cite: 1]
+    const hash = window.location.hash;
+    if (hash.includes('access_token=')) {
+      const params = new URLSearchParams(hash.substring(1));
+      const token = params.get('access_token');
+      if (token) {
+        accessToken = token;
+        localStorage.setItem('tw_token', accessToken);
+        window.location.hash = ''; // ハッシュをクリア
+      }
+    }
+
     peer = new Peer();
     peer.on('open', () => connectToDisplay());
 
@@ -257,7 +269,7 @@
 
       if (accessToken) {
         document.getElementById('token-input').value = accessToken;
-        validateTokenQuietly();
+        validateAndStart();
       }
 
       updateTransform();
@@ -266,16 +278,19 @@
   }
 
   function openAuthPage() {
-    const url = `https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
-    window.open(url, '_blank');
+    const scopes = 'channel:read:clips';
+    const url = `https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(scopes)}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.click();
   }
 
-  async function startConnection() {
+  function startConnection() {
     const inputEl = document.getElementById('token-input');
     let rawInput = inputEl ? inputEl.value.trim() : '';
     if (!rawInput) { alert('トークンを入力してください'); return; }
 
-    // URLや付加情報が含まれていてもアクセストークン部分を綺麗に抽出する
     let cleanToken = rawInput;
     if (rawInput.includes('access_token=')) {
       try {
@@ -290,42 +305,30 @@
       } catch (e) {}
     }
 
-    try {
-      const res = await fetch('https://id.twitch.tv/oauth2/validate', { headers: { 'Authorization': `OAuth ${cleanToken}` } });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      
-      accessToken = cleanToken;
-      localStorage.setItem('tw_token', accessToken);
-      inputEl.value = accessToken;
-
-      const status = document.getElementById('conn-status');
-      if (status) {
-        status.innerText = `● 接続中 (${data.login})`;
-        status.style.color = '#00f076';
-      }
-      alert(`✅ 認証成功！ (${data.login} さんで接続しました)`);
-    } catch(e) {
-      alert('❌ トークンが無効または期限切れです');
-    }
+    accessToken = cleanToken;
+    localStorage.setItem('tw_token', accessToken);
+    validateAndStart();
   }
 
-  async function validateTokenQuietly() {
+  async function validateAndStart() {
     try {
       const res = await fetch('https://id.twitch.tv/oauth2/validate', { headers: { 'Authorization': `OAuth ${accessToken}` } });
       if (!res.ok) throw new Error();
       const data = await res.json();
+      
       const status = document.getElementById('conn-status');
       if (status) {
         status.innerText = `● 接続中 (${data.login})`;
         status.style.color = '#00f076';
       }
+      document.getElementById('token-input').value = accessToken;
     } catch(e) {
       const status = document.getElementById('conn-status');
       if (status) {
         status.innerText = '● トークン要再取得';
         status.style.color = '#ff4f4f';
       }
+      alert('❌ トークンが無効または期限切れです');
     }
   }
 
