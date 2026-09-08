@@ -89,7 +89,7 @@
     button.stop-btn { background: #eb0400; }
     button.stop-btn:hover { background: #c50300; }
     
-    input[type="text"] {
+    input[type="text"], input[type="password"] {
       width: 100%; padding: 6px; box-sizing: border-box;
       background: #26262c; border: 1px solid #464649; color: white; border-radius: 4px; margin-bottom: 6px;
     }
@@ -116,6 +116,41 @@
     }
     .clip-item-btn:hover { background: #26262c; border-color: #9146ff; }
   </style>
+
+  <script>
+    // =========================================================================
+    // 0. ポップアップ認証で戻ってきた時用の処理（最優先で実行）
+    // =========================================================================
+    const hashData = window.location.hash.substring(1);
+    const hashParams = new URLSearchParams(hashData);
+    const tokenFromUrl = hashParams.get('access_token');
+
+    if (tokenFromUrl) {
+      // 親ウィンドウ（OBSドック）が存在する場合はトークンを渡して自動で閉じる
+      if (window.opener) {
+        try {
+          window.opener.postMessage({ type: 'TWITCH_TOKEN', token: tokenFromUrl }, '*');
+          window.close();
+        } catch (e) {}
+      }
+      
+      // 自動で閉じられなかった場合（外部ブラウザ等）は、トークンコピペ用画面を表示する
+      window.onload = () => {
+        document.body.innerHTML = `
+          <div style="padding: 20px; text-align: center; background: #18181b; color: white; height: 100vh; font-family: sans-serif;">
+            <h2 style="color: #00f592; margin-top: 20px;">✅ 認証成功！</h2>
+            <p style="font-size: 13px; color: #adadb8;">以下のトークンをコピーして、OBSのレイドツールの<br>「設定」タブにあるトークン欄に貼り付けて保存してください。</p>
+            <input type="text" value="${tokenFromUrl}" readonly onclick="this.select()" style="width: 90%; max-width: 400px; padding: 12px; margin: 10px 0; text-align: center; font-weight: bold; background: #26262c; color: white; border: 1px solid #464649; border-radius: 4px;">
+            <br>
+            <button onclick="navigator.clipboard.writeText('${tokenFromUrl}').then(() => alert('コピーしました！OBSに戻って貼り付けてください。'))" style="padding: 12px 24px; background: #9146ff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-top: 10px;">📋 トークンをコピー</button>
+          </div>
+        `;
+      };
+      
+      // 以降のツール本体の読み込みを停止する
+      throw new Error('Auth Window Loaded');
+    }
+  </script>
 </head>
 <body>
 
@@ -178,7 +213,14 @@
     <div class="control-group">
       <h4 style="margin: 0 0 4px 0;">Twitch 接続設定</h4>
       <div id="statusBadge" class="status-badge status-disconnected">未連携</div>
+      <!-- 別窓（ポップアップ）で開くように変更 -->
       <button class="action-btn" id="connectBtn" onclick="loginTwitch()">🟣 Twitchアカウントと連携して接続</button>
+      
+      <!-- 手動バックアップ用のペースト欄 -->
+      <div style="margin-top: 8px; display: flex; gap: 4px;">
+        <input type="password" id="tokenInput" placeholder="トークンを手動で貼る場合はここへ" style="margin: 0;">
+        <button class="action-btn sub-btn" onclick="saveToken()" style="margin: 0; width: 60px;">保存</button>
+      </div>
     </div>
 
     <div class="control-group">
@@ -233,7 +275,7 @@
     initDockMode();
   }
 
-  // UI通知バナー表示関数（alertの完全代替）
+  // UI通知バナー表示関数
   function showBanner(msg, isError = false) {
     const banner = document.getElementById('toastBanner');
     if (!banner) return;
@@ -351,33 +393,33 @@
     peer = new Peer();
     peer.on('open', () => connectToDisplay());
 
-    document.addEventListener('DOMContentLoaded', () => setupDockUI());
-    if (document.readyState === 'interactive' || document.readyState === 'complete') {
-      setupDockUI();
-    }
+    window.onload = () => {
+      accessToken = localStorage.getItem('twitch_access_token') || '';
+      
+      if (accessToken) {
+        document.getElementById('tokenInput').value = accessToken;
+        updateStatusBadge();
+      }
+
+      document.getElementById('roomIdInput').value = roomId;
+      updateSourceUrlDisplay();
+      updateTransform();
+      updateVolume();
+    };
+
+    // 別窓（ポップアップ）からのトークン受け取りリスナー
+    window.addEventListener('message', (event) => {
+      if (event.data && event.data.type === 'TWITCH_TOKEN') {
+        accessToken = event.data.token;
+        localStorage.setItem('twitch_access_token', accessToken);
+        document.getElementById('tokenInput').value = accessToken;
+        updateStatusBadge();
+        showBanner('✅ Twitchアカウントとの連携が完了しました！');
+      }
+    });
   }
 
-  let isDockSetupDone = false;
-  function setupDockUI() {
-    if (isDockSetupDone) return;
-    isDockSetupDone = true;
-
-    const hash = window.location.hash.substring(1);
-    const params = new URLSearchParams(hash);
-    const tokenFromUrl = params.get('access_token');
-
-    if (tokenFromUrl) {
-      accessToken = tokenFromUrl;
-      localStorage.setItem('twitch_access_token', accessToken);
-      history.replaceState(null, null, window.location.pathname);
-      
-      // 連携成功時は設定タブへ移動＆画面内バナー表示
-      switchTab('settings');
-      showBanner('✅ Twitchアカウントとの連携が完了しました！');
-    } else {
-      accessToken = localStorage.getItem('twitch_access_token') || '';
-    }
-
+  function updateStatusBadge() {
     if (accessToken) {
       const badge = document.getElementById('statusBadge');
       if (badge) {
@@ -389,20 +431,28 @@
         connectBtn.innerText = '🔄 アカウントを再連携する';
       }
     }
+  }
 
-    const roomIdElem = document.getElementById('roomIdInput');
-    if (roomIdElem) roomIdElem.value = roomId;
+  // ポップアップウィンドウを開いて認証する
+  function loginTwitch() {
+    const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=`;
+    window.open(authUrl, 'TwitchAuth', 'width=500,height=600');
+  }
 
-    updateSourceUrlDisplay();
-    updateTransform();
-    updateVolume();
+  // コピペ用保存ボタン
+  function saveToken() {
+    const inputVal = document.getElementById('tokenInput').value.trim();
+    if (!inputVal) return showBanner('トークンを入力してください', true);
+    accessToken = inputVal;
+    localStorage.setItem('twitch_access_token', accessToken);
+    updateStatusBadge();
+    showBanner('✅ トークンを手動保存しました！');
   }
 
   function updateSourceUrlDisplay() {
     document.getElementById('sourceUrlDisplay').value = `${REDIRECT_URI}?display&room=${roomId}`;
   }
 
-  // 通信ID再生成（2段階クリック方式・confirm完全排除）
   function regenerateRoomId() {
     const btn = document.getElementById('regenBtn');
     if (!confirmRegenState) {
@@ -444,11 +494,6 @@
         if (conn && conn.open) conn.send(data);
       }, 500);
     }
-  }
-
-  function loginTwitch() {
-    const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=`;
-    window.location.href = authUrl;
   }
 
   function copySourceUrl() {
