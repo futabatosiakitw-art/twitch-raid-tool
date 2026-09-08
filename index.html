@@ -49,6 +49,19 @@
     body.mode-dock #display-root { display: none; }
     body.mode-dock #dock-root { display: block; }
 
+    /* 通知バナー用スタイル */
+    .toast-banner {
+      display: none;
+      padding: 8px;
+      margin-bottom: 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .toast-success { background: #00f592; color: #000; }
+    .toast-error { background: #eb0400; color: #fff; }
+
     .tabs { display: flex; gap: 4px; border-bottom: 2px solid #303036; margin-bottom: 8px; }
     .tab-btn {
       flex: 1; padding: 6px; background: #26262c; color: #adadb8;
@@ -113,6 +126,9 @@
 
 <!-- ドックリモコン用ルート (?display なし) -->
 <div id="dock-root">
+  <!-- 通知バナー -->
+  <div id="toastBanner" class="toast-banner"></div>
+
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('clip', this)">クリップ操作</button>
     <button class="tab-btn" onclick="switchTab('vod', this)">今日のVOD</button>
@@ -169,14 +185,14 @@
       <h4 style="margin: 0 0 4px 0;">ブラウザソース用 URL</h4>
       <p style="font-size: 11px; color:#adadb8; margin:0 0 6px 0;">OBSの「ブラウザソース」に貼り付ける専用URLです（暗号ID付き）。</p>
       <input type="text" id="sourceUrlDisplay" readonly onclick="this.select()">
-      <button class="action-btn sub-btn" onclick="copySourceUrl()">📋 ソース用URLをコピー</button>
+      <button class="action-btn sub-btn" id="copyUrlBtn" onclick="copySourceUrl()">📋 ソース用URLをコピー</button>
     </div>
 
     <div class="control-group">
       <h4 style="margin: 0 0 4px 0;">セキュリティ設定</h4>
       <p style="font-size: 11px; color:#adadb8; margin:0 0 4px 0;">通信用ID（外部漏洩防止のためランダム生成されています）</p>
       <input type="text" id="roomIdInput" readonly style="color: #888;">
-      <button class="action-btn stop-btn" onclick="regenerateRoomId()" style="margin-top: 4px;">⚠️ 通信IDを再生成する（URLも変わります）</button>
+      <button class="action-btn stop-btn" id="regenBtn" onclick="regenerateRoomId()" style="margin-top: 4px;">⚠️ 通信IDを再生成する</button>
     </div>
 
     <div class="control-group">
@@ -215,6 +231,16 @@
   } else {
     document.body.classList.add('mode-dock');
     initDockMode();
+  }
+
+  // UI通知バナー表示関数（alertの完全代替）
+  function showBanner(msg, isError = false) {
+    const banner = document.getElementById('toastBanner');
+    if (!banner) return;
+    banner.innerText = msg;
+    banner.className = `toast-banner ${isError ? 'toast-error' : 'toast-success'}`;
+    banner.style.display = 'block';
+    setTimeout(() => { banner.style.display = 'none'; }, 4000);
   }
 
   // タブ切り替え関数
@@ -319,6 +345,7 @@
   
   let peer = null;
   let conn = null;
+  let confirmRegenState = false;
 
   function initDockMode() {
     peer = new Peer();
@@ -344,9 +371,9 @@
       localStorage.setItem('twitch_access_token', accessToken);
       history.replaceState(null, null, window.location.pathname);
       
-      // 連携完了時は設定タブに留まり、通知を表示
+      // 連携成功時は設定タブへ移動＆画面内バナー表示
       switchTab('settings');
-      setTimeout(() => alert('✅ Twitchアカウントとの連携が完了しました！'), 100);
+      showBanner('✅ Twitchアカウントとの連携が完了しました！');
     } else {
       accessToken = localStorage.getItem('twitch_access_token') || '';
     }
@@ -375,14 +402,25 @@
     document.getElementById('sourceUrlDisplay').value = `${REDIRECT_URI}?display&room=${roomId}`;
   }
 
+  // 通信ID再生成（2段階クリック方式・confirm完全排除）
   function regenerateRoomId() {
-    if (confirm('通信IDを再生成すると、現在OBSに設定しているブラウザソースのURLが無効になります。\n再生成しますか？')) {
+    const btn = document.getElementById('regenBtn');
+    if (!confirmRegenState) {
+      confirmRegenState = true;
+      btn.innerText = '⚠️ 本当に再生成しますか？ (もう一度クリック)';
+      setTimeout(() => {
+        confirmRegenState = false;
+        btn.innerText = '⚠️ 通信IDを再生成する';
+      }, 5000);
+    } else {
+      confirmRegenState = false;
+      btn.innerText = '⚠️ 通信IDを再生成する';
       roomId = generateSecureRoomId();
       localStorage.setItem('raid_tool_room_id', roomId);
       document.getElementById('roomIdInput').value = roomId;
       updateSourceUrlDisplay();
       connectToDisplay();
-      alert('新しい通信IDを生成しました！\n設定タブで新しい「ソース用URL」をコピーしてOBSのブラウザソースに貼り付け直してください。');
+      showBanner('新しい通信IDを生成しました！ソースURLをOBSへ再設定してください。');
     }
   }
 
@@ -416,7 +454,10 @@
   function copySourceUrl() {
     const urlInput = document.getElementById('sourceUrlDisplay');
     navigator.clipboard.writeText(urlInput.value).then(() => {
-      alert('ブラウザソース用URLをコピーしました！\nOBSの「ブラウザソース」のURL欄に貼り付けてください。');
+      const btn = document.getElementById('copyUrlBtn');
+      btn.innerText = '✅ コピーしました！';
+      setTimeout(() => { btn.innerText = '📋 ソース用URLをコピー'; }, 2000);
+      showBanner('📋 ブラウザソース用URLをコピーしました！');
     });
   }
 
@@ -449,19 +490,23 @@
 
   async function loadUserData() {
     const username = document.getElementById('targetUser').value.trim();
-    if (!username) return alert('Twitch IDを入力してください');
-    if (!accessToken) return alert('設定タブで連携を行ってください');
+    if (!username) return showBanner('Twitch IDを入力してください', true);
+    if (!accessToken) return showBanner('設定タブで連携を行ってください', true);
 
-    const res = await fetch(`https://api.twitch.tv/helix/users?login=${username}`, {
-      headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
-    });
-    const data = await res.json();
-    if (data.data && data.data.length > 0) {
-      currentBroadcasterId = data.data[0].id;
-      await fetchClips();
-      alert(`${data.data[0].display_name} さんの情報を読み込みました`);
-    } else {
-      alert('ユーザーが見つかりませんでした');
+    try {
+      const res = await fetch(`https://api.twitch.tv/helix/users?login=${username}`, {
+        headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
+      });
+      const data = await res.json();
+      if (data.data && data.data.length > 0) {
+        currentBroadcasterId = data.data[0].id;
+        await fetchClips();
+        showBanner(`✅ ${data.data[0].display_name} さんの情報を読み込みました！`);
+      } else {
+        showBanner('ユーザーが見つかりませんでした', true);
+      }
+    } catch(e) {
+      showBanner('通信エラーが発生しました', true);
     }
   }
 
@@ -514,7 +559,7 @@
   }
 
   function playTopClip() {
-    if (rawClipsData.length === 0) return alert('クリップ情報がありません');
+    if (rawClipsData.length === 0) return showBanner('クリップ情報がありません。先にIDを入力して読み込んでください', true);
     playClipById(rawClipsData[0].id);
   }
 
@@ -530,7 +575,7 @@
   }
 
   function nextClip() {
-    if (clipsPool.length === 0) return alert('クリップ情報がありません');
+    if (clipsPool.length === 0) return showBanner('クリップ情報がありません。先にIDを入力して読み込んでください', true);
     const clip = clipsPool[currentClipIdx];
     playClipById(clip.id);
 
@@ -539,7 +584,7 @@
   }
 
   async function loadTodayVod() {
-    if (!currentBroadcasterId) return alert('先にユーザー情報を読み込んでください');
+    if (!currentBroadcasterId) return showBanner('先にユーザー情報を読み込んでください', true);
     const res = await fetch(`https://api.twitch.tv/helix/videos?user_id=${currentBroadcasterId}&type=archive&first=1`, {
       headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
     });
@@ -553,7 +598,7 @@
       const vol = parseFloat(document.getElementById('volRange').value) / 100;
       sendCommand({ type: 'PLAY_MEDIA', mediaType: 'vod', id: vod.id, volume: vol });
     } else {
-      alert('アーカイブ（VOD）が見つかりませんでした');
+      showBanner('アーカイブ（VOD）が見つかりませんでした', true);
     }
   }
 
