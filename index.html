@@ -58,14 +58,12 @@
     const CLIENT_ID = 'wh00jngjvj1j24n192xjjozyqcgvv4';
     const REDIRECT_URI = 'https://futabatosiakitw-art.github.io/twitch-raid-tool/';
 
-    // ページ読み込み時にURLのパラメータやハッシュを監視して認証画面をサンドイッチする処理
     const pathParams = new URLSearchParams(window.location.search);
     const hashData = window.location.hash.substring(1);
     const hashParams = new URLSearchParams(hashData);
     const tokenFromUrl = hashParams.get('access_token');
 
     if (tokenFromUrl) {
-      // 認証完了後のトークン表示画面
       window.onload = () => {
         document.body.innerHTML = `
           <div style="padding: 20px; text-align: center; background: #18181b; color: white; height: 100vh; font-family: sans-serif;">
@@ -79,7 +77,6 @@
       };
       throw new Error('Auth Token Display Mode');
     } else if (pathParams.has('auth')) {
-      // Twitchの認証ページへ強制ジャンプするモード
       window.location.replace(`https://id.twitch.tv/oauth2/authorize?response_type=token&client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`);
       throw new Error('Redirecting to Twitch Auth');
     }
@@ -171,6 +168,16 @@
 </div>
 
 <script>
+  // 変数を先頭で安全に定義（ReferenceError対策）
+  let peer = null;
+  let conn = null;
+  let rawClipsData = [];
+  let clipsPool = [];
+  let featuredClipsPool = [];
+  let currentClipIdx = 0;
+  let currentFeaturedIdx = 0;
+  let currentBroadcasterId = '';
+
   const urlParams = new URLSearchParams(window.location.search);
   const isDisplayMode = urlParams.has('display');
   const roomIdParam = urlParams.get('room');
@@ -199,8 +206,9 @@
     let twitchEmbed = null;
     let currentVolume = 0.5;
 
-    const peer = new Peer('raid-room-' + roomId);
-    peer.on('connection', (conn) => {
+    peer = new Peer('raid-room-' + roomId);
+    peer.on('connection', (connection) => {
+      conn = connection;
       conn.on('data', (data) => handleCommand(data));
     });
 
@@ -261,15 +269,6 @@
     }
   }
 
-  let rawClipsData = [];
-  let clipsPool = [];
-  let featuredClipsPool = [];
-  let currentClipIdx = 0;
-  let currentFeaturedIdx = 0;
-  let currentBroadcasterId = '';
-  let peer = null;
-  let conn = null;
-
   function initDockMode() {
     peer = new Peer();
     peer.on('open', () => connectToDisplay());
@@ -289,7 +288,6 @@
   }
 
   function openAuthPage() {
-    // ?auth をつけて別窓で開くことで専用の認証ポップアップとして機能させる
     window.open(REDIRECT_URI + '?auth', '_blank', 'width=500,height=600');
   }
 
