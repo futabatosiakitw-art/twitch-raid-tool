@@ -2,159 +2,90 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Raid Control Tool</title>
+  <title>Twitch Token Generator</title>
   <style>
     body {
-      background: #18181b;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0e0e10;
       color: #efeff1;
-      font-family: sans-serif;
-      margin: 0;
-      padding: 8px;
-      font-size: 13px;
-    }
-    .auth-banner {
-      background: #26262c;
-      padding: 10px;
-      border-radius: 6px;
-      text-align: center;
-      margin-bottom: 8px;
-    }
-    .tabs {
       display: flex;
-      gap: 4px;
-      border-bottom: 2px solid #303036;
-      margin-bottom: 8px;
-    }
-    .tab-btn {
-      flex: 1;
-      padding: 6px;
-      background: #26262c;
-      color: #adadb8;
-      border: none;
-      cursor: pointer;
-      font-weight: bold;
-      border-radius: 4px 4px 0 0;
-    }
-    .tab-btn.active {
-      background: #9146ff;
-      color: #fff;
-    }
-    .tab-content {
-      display: none;
-    }
-    .tab-content.active {
-      display: block;
-    }
-    .control-group {
-      background: #0e0e10;
-      padding: 8px;
-      border-radius: 6px;
-      margin-bottom: 8px;
-    }
-    .slider-row {
-      display: flex;
+      justify-content: center;
       align-items: center;
-      gap: 8px;
-      margin: 4px 0;
+      min-height: 100vh;
+      margin: 0;
     }
-    .slider-row label { width: 50px; }
-    .slider-row input[type="range"] { flex: 1; }
-    .slider-row span { width: 45px; text-align: right; }
-    button.action-btn {
+    .card {
+      background-color: #18181b;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+      width: 380px;
+      text-align: center;
+      border: 1px solid #303036;
+    }
+    h2 {
+      margin-top: 0;
+      color: #a970ff;
+    }
+    p {
+      font-size: 13px;
+      color: #adadb8;
+      line-height: 1.5;
+    }
+    .btn {
       width: 100%;
-      padding: 8px;
-      background: #9146ff;
-      color: white;
+      padding: 12px;
+      background-color: #9146ff;
       border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      font-weight: bold;
-      margin-top: 4px;
-    }
-    button.action-btn:hover { background: #772ce8; }
-    button.stop-btn { background: #eb0400; }
-    button.stop-btn:hover { background: #c50300; }
-    input[type="text"] {
-      width: 100%;
-      padding: 6px;
-      box-sizing: border-box;
-      background: #26262c;
-      border: 1px solid #464649;
+      border-radius: 6px;
       color: white;
-      border-radius: 4px;
-      margin-bottom: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 10px;
+      transition: background-color 0.2s;
     }
-    .preview-box {
-      width: 100%;
-      aspect-ratio: 16 / 9;
+    .btn:hover {
+      background-color: #772ce8;
+    }
+    .token-box {
+      margin-top: 20px;
+      padding: 12px;
       background: #000;
-      margin-bottom: 8px;
-      border-radius: 4px;
-      overflow: hidden;
+      border-radius: 6px;
+      border: 1px solid #303036;
+      word-break: break-all;
+      color: #00f592;
+      font-family: monospace;
+      font-size: 14px;
+      text-align: left;
     }
-    iframe { width: 100%; height: 100%; border: none; }
+    .copy-btn {
+      background-color: #00f592;
+      color: #000;
+    }
+    .copy-btn:hover {
+      background-color: #00d37e;
+    }
   </style>
 </head>
 <body>
 
-<!-- 認証ステータスエリア -->
-<div class="auth-banner" id="authBanner">
-  <span id="authStatusText">Twitchと未連携です</span>
-  <button class="action-btn" id="authBtn" onclick="loginTwitch()" style="margin-top: 6px;">🟣 Twitchアカウントと連携</button>
-</div>
+<div class="card">
+  <h2>Twitch Token Generator</h2>
 
-<!-- メインコンテンツ -->
-<div class="tabs">
-  <button class="tab-btn active" onclick="switchTab('clip')">クリップ紹介</button>
-  <button class="tab-btn" onclick="switchTab('vod')">今日のVOD</button>
-  <button class="tab-btn" onclick="switchTab('settings')">設定</button>
-</div>
-
-<!-- 共通：ユーザー読み込み -->
-<div class="control-group">
-  <input type="text" id="targetUser" placeholder="レイド相手のTwitch IDを入力 (例: twitch)">
-  <button class="action-btn" onclick="loadUserData()">情報を読み込む</button>
-</div>
-
-<!-- タブ1：クリップ紹介 -->
-<div id="tab-clip" class="tab-content active">
-  <div class="preview-box" id="clipPreview"></div>
-  <button class="action-btn" onclick="nextClip()">🎲 重複なしランダム再生 (次のクリップ)</button>
-  <button class="action-btn stop-btn" onclick="stopMedia()" style="margin-top: 4px;">画面から消す</button>
-</div>
-
-<!-- タブ2：今日のVOD紹介 -->
-<div id="tab-vod" class="tab-content">
-  <div class="preview-box" id="vodPreview"></div>
-  <button class="action-btn" onclick="loadTodayVod()">今日の最新VODを再生</button>
-  <button class="action-btn stop-btn" onclick="stopMedia()" style="margin-top: 4px;">画面から消す</button>
-</div>
-
-<!-- タブ3：設定 -->
-<div id="tab-settings" class="tab-content">
-  <div class="control-group">
-    <h4 style="margin: 0 0 4px 0;">ブラウザソース用 URL</h4>
-    <p style="font-size:11px; color:#adadb8; margin: 0 0 6px 0;">以下のURLをOBSの「ブラウザソース」に設定してください。</p>
-    <input type="text" id="sourceUrlDisplay" readonly onclick="this.select()">
+  <!-- 未認証時の表示 -->
+  <div id="unauthSection">
+    <p>下のボタンを押してTwitchアカウントを認証すると、アクセストークンが発行されます。</p>
+    <button class="btn" onclick="authorize()">🟣 Twitchで認証する</button>
   </div>
 
-  <div class="control-group">
-    <h4 style="margin: 0 0 4px 0;">位置・サイズ設定 (リアルタイム同期)</h4>
-    <div class="slider-row">
-      <label>位置 X</label>
-      <input type="range" id="posX" min="0" max="1920" value="100" oninput="updateTransform()">
-      <span id="valX">100px</span>
-    </div>
-    <div class="slider-row">
-      <label>位置 Y</label>
-      <input type="range" id="posY" min="0" max="1080" value="100" oninput="updateTransform()">
-      <span id="valY">100px</span>
-    </div>
-    <div class="slider-row">
-      <label>横幅</label>
-      <input type="range" id="posW" min="200" max="1920" value="640" oninput="updateTransform()">
-      <span id="valW">640px</span>
-    </div>
+  <!-- 認証成功時の表示 -->
+  <div id="authSection" style="display: none;">
+    <p style="color: #00f592; font-weight: bold;">✅ 認証に成功しました！</p>
+    <div class="token-box" id="tokenDisplay"></div>
+    <button class="btn copy-btn" onclick="copyToken()">📋 1ポチでトークンをコピー</button>
+    <button class="btn" onclick="authorize()" style="background: #26262c; color: #adadb8; margin-top: 8px;">再認証する</button>
   </div>
 </div>
 
@@ -162,148 +93,33 @@
   const CLIENT_ID = 'wh00jngjvj1j24n192xjjozyqcgvv4';
   const REDIRECT_URI = 'https://futabatosiakitw-art.github.io/twitch-raid-tool/';
 
-  const channel = new BroadcastChannel('raid_control_channel');
-  let accessToken = '';
-  let clipsPool = [];
-  let currentClipIdx = 0;
-  let currentBroadcasterId = '';
-
   window.onload = () => {
     const hash = window.location.hash.substring(1);
     const params = new URLSearchParams(hash);
-    const tokenFromUrl = params.get('access_token');
-
-    if (tokenFromUrl) {
-      accessToken = tokenFromUrl;
-      localStorage.setItem('twitch_access_token', accessToken);
-      history.replaceState(null, null, window.location.pathname);
-    } else {
-      accessToken = localStorage.getItem('twitch_access_token') || '';
-    }
+    const accessToken = params.get('access_token');
 
     if (accessToken) {
-      document.getElementById('authStatusText').innerText = '✅ Twitch連携完了済み';
-      document.getElementById('authBtn').style.display = 'none';
+      document.getElementById('unauthSection').style.display = 'none';
+      document.getElementById('authSection').style.display = 'block';
+      document.getElementById('tokenDisplay').innerText = accessToken;
     }
-
-    const sourcePath = window.location.href.replace('index.html', '').replace(/\/$/, '') + '/source.html';
-    document.getElementById('sourceUrlDisplay').value = sourcePath;
-
-    updateTransform();
   };
 
-  function loginTwitch() {
-    const authUrl = `https://id.twitch.tv/oauth2/authorize?client_id=${CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=`;
+  function authorize() {
+    const authUrl = `https://id.twitch.tv/oauth2/authorize` +
+      `?client_id=${CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&response_type=token` +
+      `&scope=`;
+
     window.location.href = authUrl;
   }
 
-  function switchTab(tabName) {
-    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
-    
-    event.target.classList.add('active');
-    document.getElementById(`tab-${tabName}`).classList.add('active');
-  }
-
-  function updateTransform() {
-    const x = document.getElementById('posX').value;
-    const y = document.getElementById('posY').value;
-    const w = document.getElementById('posW').value;
-
-    document.getElementById('valX').innerText = `${x}px`;
-    document.getElementById('valY').innerText = `${y}px`;
-    document.getElementById('valW').innerText = `${w}px`;
-
-    channel.postMessage({
-      type: 'TRANSFORM',
-      x: parseInt(x),
-      y: parseInt(y),
-      width: parseInt(w)
+  function copyToken() {
+    const token = document.getElementById('tokenDisplay').innerText;
+    navigator.clipboard.writeText(token).then(() => {
+      alert('アクセストークンをクリップボードにコピーしました！');
     });
-  }
-
-  function shuffle(array) {
-    for (let i = array.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [array[i], array[j]] = [array[j], array[i]];
-    }
-    return array;
-  }
-
-  async function loadUserData() {
-    const username = document.getElementById('targetUser').value.trim();
-    if (!username) {
-      alert('Twitch IDを入力してください');
-      return;
-    }
-    if (!accessToken) {
-      alert('先に「Twitchアカウントと連携」を行ってください');
-      return;
-    }
-
-    const res = await fetch(`https://api.twitch.tv/helix/users?login=${username}`, {
-      headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
-    });
-    const data = await res.json();
-    if (data.data && data.data.length > 0) {
-      currentBroadcasterId = data.data[0].id;
-      fetchClips();
-      alert(`${data.data[0].display_name} さんの情報を読み込みました`);
-    } else {
-      alert('ユーザーが見つかりませんでした');
-    }
-  }
-
-  async function fetchClips() {
-    const res = await fetch(`https://api.twitch.tv/helix/clips?broadcaster_id=${currentBroadcasterId}&first=100`, {
-      headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
-    });
-    const data = await res.json();
-    if (data.data && data.data.length > 0) {
-      clipsPool = shuffle(data.data);
-      currentClipIdx = 0;
-    }
-  }
-
-  function nextClip() {
-    if (clipsPool.length === 0) {
-      alert('クリップがないか、情報を読み込んでいません');
-      return;
-    }
-    const clip = clipsPool[currentClipIdx];
-    
-    document.getElementById('clipPreview').innerHTML = `<iframe src="https://clips.twitch.tv/embed?clip=${clip.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=true"></iframe>`;
-    
-    channel.postMessage({ type: 'PLAY_MEDIA', mediaType: 'clip', id: clip.id });
-
-    currentClipIdx = (currentClipIdx + 1) % clipsPool.length;
-    if (currentClipIdx === 0) clipsPool = shuffle(clipsPool);
-  }
-
-  async function loadTodayVod() {
-    if (!currentBroadcasterId) {
-      alert('先にユーザー情報を読み込んでください');
-      return;
-    }
-
-    const res = await fetch(`https://api.twitch.tv/helix/videos?user_id=${currentBroadcasterId}&type=archive&first=1`, {
-      headers: { 'Client-ID': CLIENT_ID, 'Authorization': `Bearer ${accessToken}` }
-    });
-    const data = await res.json();
-
-    if (data.data && data.data.length > 0) {
-      const vod = data.data[0];
-      document.getElementById('vodPreview').innerHTML = `<iframe src="https://player.twitch.tv/?video=${vod.id}&parent=futabatosiakitw-art.github.io&autoplay=true&muted=true"></iframe>`;
-      channel.postMessage({ type: 'PLAY_MEDIA', mediaType: 'vod', id: vod.id });
-    } else {
-      alert('アーカイブ（VOD）が見つかりませんでした');
-    }
-  }
-
-  function stopMedia() {
-    document.getElementById('clipPreview').innerHTML = '';
-    document.getElementById('vodPreview').innerHTML = '';
-    channel.postMessage({ type: 'STOP_MEDIA' });
   }
 </script>
 </body>
